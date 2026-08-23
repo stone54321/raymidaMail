@@ -252,7 +252,7 @@ export default {
 };
 ```
 
-```markdown
+
 4. **Set Environment Variables**:
    - Go to **Worker Settings → Variables → Environment Variables**
    - Add variable: `INBOUND_KEY` = `your_actual_inbound_key` (same as in systemd service)
@@ -271,6 +271,7 @@ export default {
 - Replace `yourdomain.com` with your actual domain
 - Replace `YOUR_INBOUND_KEY_HERE` with a secure random string (generate with `openssl rand -hex 32`)
 - Bind R2 bucket: Go to Worker Settings → R2 Bucket Bindings → Add binding with name `R2_BUCKET` pointing to your bucket
+
 
 ### 6. Cloudflare Tunnel Setup
 

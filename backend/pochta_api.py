@@ -26,10 +26,11 @@ from pathlib import Path
 
 # Configuration
 SCRIPT_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = SCRIPT_DIR.parent  # ~/projects/raymida-mail/
+PROJECT_ROOT = SCRIPT_DIR.parent
 
 MAIL_DIR = Path(os.environ.get("MAIL_DIR", Path.home() / "mail"))
-WEB_DIR = Path(os.environ.get("WEB_DIR", PROJECT_ROOT / "frontend"))
+_default_web = PROJECT_ROOT / "frontend" if (PROJECT_ROOT / "frontend").exists() else SCRIPT_DIR / "web"
+WEB_DIR = Path(os.environ.get("WEB_DIR", _default_web))
 MAIL_DOMAIN = os.environ.get("MAIL_DOMAIN", "raymida.com")
 USERS_FILE = Path.home() / ".raymida_users.json"
 RESEND_KEY = os.environ.get("RESEND_KEY", "").strip()
