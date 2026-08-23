@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
 """
-setup_users.py — Создает файл пользователей с bcrypt-хешами паролей.
+setup_users.py — Creates a user file with bcrypt-hashed passwords.
 """
 import json
 import secrets
@@ -15,7 +14,7 @@ def hash_password(password: str) -> str:
         import bcrypt
         return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     except ImportError:
-        print("⚠️ Warning: bcrypt not installed, using SHA-256 (менее безопасно)")
+        print("⚠️ Warning: bcrypt not installed, using SHA-256 (less secure)")
         return hashlib.sha256(password.encode()).hexdigest()
 
 def main():
@@ -25,14 +24,14 @@ def main():
     users = {}
 
     while True:
-        username = input("\nUsername (например, ray или tony): ").strip().lower()
+        username = input("\nUsername (e.g., ray or tony): ").strip().lower()
         if not username:
-            print("❌ Имя пользователя не может быть пустым")
+            print("❌ Username cannot be empty")
             continue
 
         password = input(f"Password for {username}: ")
         if len(password) < 6:
-            print("❌ Пароль должен быть минимум 6 символов")
+            print("❌ Password must be at least 6 characters")
             continue
 
         api_key = secrets.token_urlsafe(32)
@@ -42,10 +41,10 @@ def main():
             "api_key": api_key
         }
 
-        print(f"✅ Пользователь '{username}' создан")
-        print(f"   (API Key сгенерирован и сохранен в файл)")
+        print(f"✅ User '{username}' created")
+        print(f"   (API Key generated and saved to file)")
 
-        another = input("\nДобавить еще пользователя? (y/n): ").strip().lower()
+        another = input("\nAdd another user? (y/n): ").strip().lower()
         if another != 'y':
             break
 
@@ -54,9 +53,9 @@ def main():
 
     os.chmod(USERS_FILE, 0o600)
 
-    print(f"\n💾 Пользователи сохранены в {USERS_FILE}")
-    print("🔒 Права файла установлены на 600 (только чтение для владельца)")
-    print("\nТеперь перезапусти сервис: systemctl --user restart pochta-web.service")
+    print(f"\n💾 Users saved to {USERS_FILE}")
+    print("🔒 File permissions set to 600 (read/write for owner only)")
+    print("\nNow restart the service: systemctl --user restart pochta-web.service")
 
 if __name__ == "__main__":
     main()
