@@ -1,0 +1,10 @@
+[Unit]
+Description=Run R2 Sync every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Unit=r2-sync.service
+
+[Install]
+WantedBy=timers.target

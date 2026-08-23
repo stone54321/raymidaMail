@@ -1,0 +1,8 @@
+[Unit]
+Description=Raymida R2 Mail Sync
+After=network.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.r2_credentials
+ExecStart=/usr/bin/python3 %h/work/r2_sync.py

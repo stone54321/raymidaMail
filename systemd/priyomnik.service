@@ -1,0 +1,15 @@
+[Unit]
+Description=Priyomnik pochty (Inbound Receiver)
+After=network.target
+
+[Service]
+Type=simple
+Environment=RAY_MAIL_KEY=YOUR_INBOUND_KEY_HERE
+Environment=MAIL_DOMAIN=yourdomain.com
+WorkingDirectory=%h/work
+ExecStart=/usr/bin/python3 %h/work/priyomnik.py 8925
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

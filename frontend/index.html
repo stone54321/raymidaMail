@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Raymida Mail</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="login-screen" class="screen">
+  <form id="login-form" class="card">
+    <div style="font-size: 32px; margin-bottom: 8px; opacity: 0.8;">🔒</div>
+    <h1>Raymida Mail</h1>
+    <input id="auth-user" type="text" placeholder="Username (e.g., ray)" autocomplete="username" required style="margin-bottom: 12px;">
+    <input id="auth-pass" type="password" placeholder="Password" autocomplete="current-password" required>
+    <button type="submit">Unlock System</button>
+    <p id="login-error" class="error-text" aria-live="polite"></p>
+  </form>
+</div>
+
+<!-- MAIN APP SCREEN -->
+<div id="main-screen" class="screen hidden">
+  <header>
+    <span class="logo">◆ raymida</span>
+    <nav id="mailboxes-list" aria-label="Mailbox navigation"></nav>
+  </header>
+
+  <main>
+    <div class="search-container" style="margin-bottom: 16px;">
+      <input id="search-input" type="text" placeholder=" Search emails..."
+         style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px;">
+    </div>
+    <section id="email-list" aria-label="Email list"></section>
+
+    <section id="email-view" class="hidden" aria-label="Email view">
+      <button id="back-btn" class="btn-ghost" type="button">← Back to list</button>
+
+      <div class="card">
+        <div id="email-subject" class="subject"></div>
+        <div id="email-from" class="muted"></div>
+      </div>
+
+      <!-- Блок для вложений -->
+      <div id="attachments-container" class="card hidden" style="margin-top: 12px;">
+        <div class="muted" style="margin-bottom: 8px; font-size: 14px;">📎 Attachments:</div>
+        <div id="attachments-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+      </div>
+
+      <pre id="email-body"></pre>
+
+            <form id="reply-form" class="card">
+        <div id="email-to" class="muted" style="margin-bottom: 8px;"></div>
+        <input id="reply-subject" type="text" placeholder="Reply subject" required>
+        <textarea id="reply-text" rows="7" placeholder="Type your reply…" required></textarea>
+
+        <!-- Новая чистая зона Drag & Drop -->
+        <div id="drop-zone" class="drop-zone">
+          <div class="drop-zone-text">📎 Drag & drop files here, or click to select</div>
+          <input id="file-input" type="file" multiple style="display: none;">
+        </div>
+
+        <!-- Контейнер для превью -->
+        <div id="attachments-preview" class="attachments-preview"></div>
+
+        <button type="submit">Send</button>
+        <p id="reply-error" class="error-text" aria-live="polite"></p>
+      </form>
+    </section>
+  </main>
+</div>
+
+<script src="anime.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+<script src="app.js" defer></script>
+</body>
+</html>

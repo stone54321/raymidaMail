@@ -1,0 +1,403 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --accent-1: #1c1c1e;
+  --accent-2: #25282d;
+  --accent-3: #3a3d42;
+  --bg-1: #0a0a0c;
+  --bg-2: #3b2f5c;
+  --bg-3: #1e3a45;
+  --glass: rgba(28, 28, 30, 0.55);
+  --text-primary: #f3f4f6;
+  --text-muted: #9ca3af;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, Segoe UI, Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.55;
+  min-height: 100vh;
+  background-color: var(--bg-1);
+  background-image:
+  url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.04'/%3E%3C/svg%3E"),
+  radial-gradient(circle at 15% 50%, rgba(59, 47, 92, 0.25) 0%, transparent 50%),
+  radial-gradient(circle at 85% 30%, rgba(30, 58, 69, 0.25) 0%, transparent 50%);
+  background-attachment: fixed;
+}
+
+/* === Utilities === */
+.hidden { display: none !important; }
+
+/* === Typography === */
+#auth-key, .muted, pre, .logo {
+font-family: 'JetBrains Mono', monospace;
+}
+
+.logo {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: lowercase;
+  background: linear-gradient(90deg, #fff, #9ca3af);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* === Layout === */
+header {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  padding: 14px 20px;
+  background: var(--glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+  border-radius: 0 0 16px 16px;
+  margin: 0 20px;
+}
+
+main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px 20px;
+  position: relative;
+  z-index: 1;
+}
+
+main::before {
+  content: '';
+  position: absolute;
+  width: 80%;
+  height: 600px;
+  left: 10%;
+  top: 0;
+  background: radial-gradient(ellipse at center, rgba(30, 58, 69, 0.4) 0%, transparent 70%);
+  filter: blur(80px);
+  z-index: -1;
+  pointer-events: none;
+}
+
+nav a {
+  color: var(--text-muted);
+  text-decoration: none;
+  margin-right: 14px;
+  transition: color 0.2s;
+}
+
+nav a.active {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+nav a:hover {
+  color: var(--text-primary);
+}
+
+/* === Glassmorphism Components === */
+.card, pre, input, textarea {
+  background: rgba(28, 28, 30, 0.25);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top-color: rgba(255, 255, 255, 0.15);
+  border-left-color: rgba(255, 255, 255, 0.12);
+  box-shadow:
+  0 8px 32px 0 rgba(0, 0, 0, 0.4),
+  inset 0 1px 0 0 rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  transition: background 0.2s, border-color 0.2s, transform 0.2s;
+}
+
+.card {
+  padding: 18px 20px;
+  margin: 10px 0;
+}
+
+pre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  border-radius: 12px;
+  padding: 14px;
+  margin: 10px 0;
+}
+
+a.email-item {
+  color: inherit;
+  text-decoration: none;
+  display: block;
+}
+
+a.email-item:hover .card {
+  background: rgba(28, 28, 30, 0.4);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateY(-2px);
+}
+
+.card.is-new {
+  border-left: 3px solid var(--accent-3);
+}
+
+/* === Forms & Inputs === */
+input, textarea {
+  width: 100%;
+  color: var(--text-primary);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin: 6px 0;
+  font: inherit;
+}
+
+textarea {
+  resize: none;
+}
+
+input:focus, textarea:focus {
+  outline: none;
+  background: rgba(28, 28, 30, 0.4);
+  border-color: rgba(255, 255, 255, 0.25);
+  box-shadow:
+  0 0 0 3px rgba(59, 47, 92, 0.25),
+  inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+}
+
+/* === Buttons === */
+button {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--accent-2), var(--accent-3));
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-top-color: rgba(255, 255, 255, 0.2);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 9px 16px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 500;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+button::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+  transition: left 0.5s ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+}
+
+button:hover::after {
+  left: 100%;
+}
+
+button:active {
+  transform: translateY(0);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  margin-bottom: 8px;
+}
+
+.btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-ghost::after {
+  display: none;
+}
+
+/* === Screens === */
+.screen {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+#login-screen {
+align-items: center;
+justify-content: center;
+position: relative;
+overflow: hidden;
+}
+
+#login-screen::before {
+content: '';
+position: absolute;
+width: 500px;
+height: 500px;
+left: 50%;
+top: 50%;
+transform: translate(-50%, -50%);
+background: radial-gradient(circle, rgba(59, 47, 92, 0.5) 0%, transparent 70%);
+filter: blur(60px);
+z-index: 0;
+animation: pulseGlow 8s ease-in-out infinite alternate;
+}
+
+#login-screen .card {
+width: 380px;
+text-align: center;
+position: relative;
+z-index: 1;
+}
+
+@keyframes pulseGlow {
+  0% { transform: translate(-50%, -50%) scale(1); opacity: 0.8; }
+  100% { transform: translate(-50%, -50%) scale(1.1); opacity: 1; }
+}
+
+#login-screen h1 {
+font-size: 17px;
+margin: 4px 0 14px;
+}
+
+/* === Misc === */
+.subject { font-weight: 600; }
+.muted { color: var(--text-muted); font-size: 13px; }
+.error-text { color: #e88; font-size: 13px; min-height: 1em; }
+
+/* === Scrollbar === */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+
+/* ==========================================
+ *  Стили для непрочитанных писем (Unread)
+ *  ========================================== */
+.new-email {
+  /* Яркая акцентная полоска слева вместо стандартной полупрозрачной */
+  border-left: 4px solid #4a9eff !important;
+  /* Легкий голубоватый оттенок фона, чтобы письмо "светилось" на темном фоне */
+  background: rgba(74, 158, 255, 0.08) !important;
+  /* Сохраняем glassmorphism эффект */
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: all 0.2s ease;
+}
+
+/* Делаем тему письма максимально заметной и жирной */
+.new-email .subject {
+  font-weight: 700 !important;
+  color: #ffffff !important; /* Чисто белый для максимального контраста */
+}
+
+/* Чуть более яркий цвет для имени отправителя в непрочитанных */
+.new-email .muted {
+  color: #d1d5db !important; /* Светлее, чем стандартный --text-muted */
+}
+
+/* Сохраняем твой красивый hover-эффект, но адаптируем под непрочитанное */
+a.email-item:hover .new-email {
+  background: rgba(74, 158, 255, 0.15) !important;
+  border-left-color: #60a5fa !important;
+  transform: translateY(-2px);
+}
+
+/* ==========================================
+ *  Drag & Drop Zone & Attachments Preview
+ *  ========================================== */
+.drop-zone {
+  border: 2px dashed rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  padding: 24px 20px;
+  text-align: center;
+  margin: 12px 0;
+  transition: all 0.2s ease;
+  background: rgba(28, 28, 30, 0.15);
+  cursor: pointer;
+}
+
+.drop-zone-text {
+  color: var(--text-muted);
+  font-size: 14px;
+  font-family: 'Inter', sans-serif;
+  pointer-events: none; /* Чтобы клик проходил сквозь текст на зону */
+}
+
+/* Эффект при наведении файла или курсора */
+.drop-zone:hover, .drop-zone.dragover {
+  border-color: #4a9eff;
+  background: rgba(74, 158, 255, 0.08);
+}
+
+.drop-zone.dragover .drop-zone-text {
+  color: #4a9eff;
+}
+
+.attachments-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+/* Карточка каждого прикрепленного файла */
+.attachment-preview-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: rgba(28, 28, 30, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.attachment-preview-item:hover {
+  background: rgba(28, 28, 30, 0.6);
+}
+
+/*  ИСПРАВЛЕНИЕ: Явный светлый цвет текста на темном фоне */
+.attachment-preview-item span {
+  color: var(--text-primary) !important;
+  font-size: 13px;
+  font-family: 'JetBrains Mono', monospace;
+  word-break: break-all;
+}
+
+/* Кнопка удаления вложения */
+.attachment-remove-btn {
+  background: transparent !important;
+  border: none !important;
+  color: #ef4444 !important; /* Красный цвет */
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 16px;
+  line-height: 1;
+  transition: background 0.2s;
+  box-shadow: none !important; /* Отменяем глобальные стили кнопок */
+}
+
+.attachment-remove-btn:hover {
+  background: rgba(239, 68, 68, 0.15) !important;
+  transform: none !important; /* Отменяем глобальный hover кнопок */
+}
