@@ -252,7 +252,7 @@ def send_email(from_addr: str, to_addr: str, subject: str, body: str,
             return "" if response.status == 200 else f"Resend returned status {response.status}"
 
     except urllib.error.HTTPError as e:
-        # 🔥 ЧИТАЕМ РЕАЛЬНУЮ ОШИБКУ ОТ RESEND (например, "invalid api key" или "unverified domain")
+        # 🔥 READ THE ACTUAL ERROR FROM RESEND (e.g., "invalid api key" or "unverified domain")
         error_body = e.read().decode('utf-8')
         return f"Resend API Error {e.code}: {error_body}"
 
@@ -355,7 +355,7 @@ class MailAPIHandler(BaseHTTPRequestHandler):
             content_type = self.headers.get("Content-Type", "")
 
             if "multipart/form-data" in content_type:
-                # Парсинг multipart без устаревшего модуля cgi (совместимо с Python 3.13+)
+                # Parse multipart without the deprecated cgi module (compatible with Python 3.13+)
                 boundary = content_type.split("boundary=")[1].strip('"\'')
                 raw_multipart = f"Content-Type: multipart/form-data; boundary={boundary}\r\n\r\n".encode() + body
                 msg = email.message_from_bytes(raw_multipart)

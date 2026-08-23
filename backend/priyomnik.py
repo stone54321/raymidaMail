@@ -86,7 +86,7 @@ def save_to_maildir(recipient: str, raw_data: bytes) -> Path:
     tmp_path = mailbox_dir / "tmp" / filename
     new_path = mailbox_dir / "new" / filename
 
-    # Atomic write (ИСПРАВЛЕНО: было raw_dataTMP)
+    # Atomic write (FIXED: was previously raw_dataTMP)
     tmp_path.write_bytes(raw_data)
     tmp_path.rename(new_path)  # Atomic on POSIX systems
 
@@ -177,7 +177,7 @@ class ThreadedReceiverServer(socketserver.ThreadingTCPServer):
     daemon_threads = True
 
 
-# ИСПРАВЛЕНО: было if __name__ == "__";
+# FIXED: was previously if __name__ == "__";
 if __name__ == "__main__":
     if not INBOUND_KEY:
         print("Error: Missing key. Start with INBOUND_KEY=<secret>", file=sys.stderr)
