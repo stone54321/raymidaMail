@@ -141,7 +141,7 @@ Clone or copy the project to your desired location:
 
 ```bash
 # Option A: Clone from Git (if published)
-git clone https://github.com/yourusername/raymida-mail.git ~/projects/raymida-mail
+git clone https://github.com/stone54321/raymidaMail ~/projects/raymida-mail
 
 # Option B: Manual copy (if developing locally)
 mkdir -p ~/projects/raymida-mail

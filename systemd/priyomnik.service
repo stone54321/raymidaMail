@@ -1,13 +1,13 @@
 [Unit]
-Description=Priyomnik pochty (Inbound Receiver)
+Description=Raymida Mail Inbound Receiver
 After=network.target
 
 [Service]
 Type=simple
 Environment=RAY_MAIL_KEY=YOUR_INBOUND_KEY_HERE
 Environment=MAIL_DOMAIN=yourdomain.com
-WorkingDirectory=%h/work
-ExecStart=/usr/bin/python3 %h/work/priyomnik.py 8925
+WorkingDirectory=%h/projects/raymida-mail/backend
+ExecStart=/usr/bin/python3 %h/projects/raymida-mail/backend/priyomnik.py 8925
 Restart=always
 RestartSec=3
 

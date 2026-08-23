@@ -1,13 +1,13 @@
 [Unit]
-Description=Veb-pochta (Web API)
+Description=Raymida Mail Web API
 After=network.target
 
 [Service]
 Type=simple
 Environment=RESEND_KEY=YOUR_RESEND_KEY_HERE
 Environment=MAIL_DOMAIN=yourdomain.com
-WorkingDirectory=%h/work
-ExecStart=/usr/bin/python3 %h/work/pochta_api.py 8926
+WorkingDirectory=%h/projects/raymida-mail/backend
+ExecStart=/usr/bin/python3 %h/projects/raymida-mail/backend/pochta_api.py 8926
 Restart=always
 RestartSec=3
 

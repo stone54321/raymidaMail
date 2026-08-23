@@ -5,4 +5,6 @@ After=network.target
 [Service]
 Type=oneshot
 EnvironmentFile=%h/.r2_credentials
-ExecStart=/usr/bin/python3 %h/work/r2_sync.py
+Environment=MAIL_DOMAIN=yourdomain.com
+WorkingDirectory=%h/projects/raymida-mail/backend
+ExecStart=/usr/bin/python3 %h/projects/raymida-mail/backend/r2_sync.py
