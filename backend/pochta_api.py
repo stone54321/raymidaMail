@@ -159,7 +159,13 @@ def get_email(mailbox: str, email_id: str) -> dict | None:
     subdir, _, filename = email_id.partition("/")
     if subdir not in ("new", "cur") or "/" in filename or ".." in filename:
         return None
+
     file_path = MAIL_DIR / mailbox / subdir / filename
+
+
+    if not file_path.exists() and subdir == "new":
+        file_path = MAIL_DIR / mailbox / "cur" / filename
+
     if not file_path.exists():
         return None
 
@@ -170,7 +176,8 @@ def get_email(mailbox: str, email_id: str) -> dict | None:
         text = body_part.get_content()
         is_html = body_part.get_content_type() == "text/html"
 
-    if subdir == "new":
+
+    if subdir == "new" and file_path.parent.name == "new":
         try:
             file_path.rename(MAIL_DIR / mailbox / "cur" / filename)
         except OSError:

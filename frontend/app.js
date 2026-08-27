@@ -71,8 +71,8 @@ $('back-btn').onclick = (e) => {
   });
 };
 
-// 📎 Drag & Drop для вложений
-// 📎 Drag & Drop для вложений
+
+
 const dropZone = $('drop-zone');
 const fileInput = $('file-input');
 const attachmentsPreview = $('attachments-preview');
@@ -82,7 +82,7 @@ dropZone.addEventListener('click', () => fileInput.click());
 
 dropZone.addEventListener('dragover', (e) => {
   e.preventDefault();
-  dropZone.classList.add('dragover'); // Добавляем класс для CSS
+  dropZone.classList.add('dragover');
 });
 
 dropZone.addEventListener('dragleave', () => {
@@ -105,7 +105,7 @@ function handleFiles(files) {
     reader.onload = (e) => {
       pendingAttachments.push({
         filename: file.name,
-        content: e.target.result.split(',')[1] // base64 без data: префикса
+        content: e.target.result.split(',')[1]
       });
       renderAttachments();
     };
@@ -136,7 +136,7 @@ $('reply-form').onsubmit = async (e) => {
 
   try {
     if (pendingAttachments.length > 0) {
-      // Отправляем multipart/form-data
+
       const formData = new FormData();
       formData.append('id', openedEmailId);
       formData.append('subject', $('reply-subject').value);
@@ -251,14 +251,14 @@ async function loadEmailList() {
   }
 }
 
-// 🔍 Поиск с debounce
+
 let searchTimeout = null;
 $('search-input').addEventListener('input', (e) => {
   clearTimeout(searchTimeout);
   const query = e.target.value.trim();
 
   if (!query) {
-    loadEmailList(); // Возвращаем обычный список
+    loadEmailList();
     return;
   }
 
@@ -289,6 +289,12 @@ async function openEmail(id) {
     const p = await api(`/api/mail?id=${encodeURIComponent(id)}`);
     openedEmailId = id;
 
+
+    const emailCard = document.querySelector(`a.email-item[data-id="${encodeURIComponent(id)}"] .card`);
+    if (emailCard) {
+      emailCard.classList.remove('new-email');
+    }
+
     const setText = (elementId, text) => {
       const el = document.getElementById(elementId);
       if (el && text !== undefined && text !== null) el.textContent = text;
@@ -308,7 +314,7 @@ async function openEmail(id) {
       const bodyEl = document.getElementById('email-body');
       if (bodyEl) {
         if (p.isHtml) {
-          // 🔥 Санитизация через DOMPurify
+
           bodyEl.innerHTML = DOMPurify.sanitize(p.text || '', {
             USE_PROFILES: { html: true },
             ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'em', 'strong', 'a', 'img', 'ul', 'ol', 'li', 'blockquote', 'pre', 'code', 'table', 'tr', 'td', 'th', 'thead', 'tbody', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span', 'hr', 'sub', 'sup'],
@@ -317,7 +323,7 @@ async function openEmail(id) {
             FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
             ADD_ATTR: ['target'],
           });
-          // Принудительно открывать ссылки в новой вкладке
+
           bodyEl.querySelectorAll('a').forEach(a => {
             a.target = '_blank';
             a.rel = 'noopener noreferrer';
@@ -327,7 +333,7 @@ async function openEmail(id) {
         }
       }
 
-      // 🔥 Рендеринг вложений
+
       const attachContainer = $('attachments-container');
       const attachList = $('attachments-list');
       attachList.innerHTML = '';
