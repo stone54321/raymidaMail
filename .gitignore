@@ -12,9 +12,6 @@ r2_credentials
 mail/
 data/
 
-# Multi-agent teamwork artifacts
-.agents/
-
 # IDE & OS
 .DS_Store
 .idea/
