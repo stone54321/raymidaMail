@@ -117,22 +117,22 @@ A self-hosted, fault-tolerant email system with multi-user support, running on a
 
 **Arch Linux / CachyOS:**
 ```bash
-sudo pacman -S python-bcrypt
+sudo pacman -S python-bcrypt python-boto3
 ```
 
 **Ubuntu / Debian:**
 ```bash
-sudo apt install python3-bcrypt
+sudo apt install python3-bcrypt python3-boto3
 ```
 
 **Fedora:**
 ```bash
-sudo dnf install python3-bcrypt
+sudo dnf install python3-bcrypt python3-boto3
 ```
 
 **Alternative (pip):**
 ```bash
-pip install bcrypt
+pip install bcrypt boto3
 ```
 
 ### 2. Project Setup
@@ -195,82 +195,140 @@ Go to Cloudflare Dashboard → Workers & Pages → Create
 2. Paste this code:
 
 ```javascript
-// Cloudflare Worker for Raymida Mail
-const INBOUND_URL = "https://mail.yourdomain.com/inbound";
-const HEALTH_URL = "https://mail.yourdomain.com/health";
-const R2_BUCKET = "mail-fallback-queue";
-const WEBHOOK_KEY = "YOUR_INBOUND_KEY_HERE"; // Must match INBOUND_KEY in systemd service
-
+/**
+ * Email Worker for raymida.com - catches email and forwards to our receiver.
+ * With R2 fallback: if local server is down, saves to R2 queue.
+ * 
+ * Variables (Settings → Variables and Secrets):
+ *   PRIYOMNIK = https://mail.yourdomain.com/inbound
+ *   KEY       = Your secret key (INBOUND_KEY or RAY_MAIL_KEY)
+ * 
+ * R2 Binding:
+ *   MAIL_QUEUE → mail-fallback-queue
+ * 
+ * Email Routing Rules: ray@yourdomain.com (or *@yourdomain.com) → Send to Worker.
+ */
 export default {
-  async fetch(request, env) {
-    // Health check
-    if (request.url.includes("/health")) {
-      return new Response("OK", { status: 200 });
+  async fetch(request, env, ctx) {
+    // Health check endpoint
+    const stroki = [];
+    stroki.push("📮 Email Worker (R2 Fallback)");
+    stroki.push(`PRIYOMNIK = ${env.PRIYOMNIK || "❌ NOT SET"}`);
+    stroki.push(`KEY = ${env.KEY ? `✓ ${env.KEY.length} chars` : "❌ NOT SET"}`);
+    stroki.push(`R2 QUEUE = ${env.MAIL_QUEUE ? "✓ Bound" : "❌ Not bound"}`);
+    
+    if (env.PRIYOMNIK && env.KEY) {
+      const healthUrl = env.PRIYOMNIK.replace(/\/(vhod|inbound)$/, "/health");
+      try {
+        const otvet = await fetch(healthUrl, { method: "GET" });
+        stroki.push(`receiver ${healthUrl} → ${otvet.status} ${await otvet.text()}`);
+      } catch (beda) {
+        stroki.push(`receiver unavailable: ${beda}`);
+      }
+    }
+    
+    return new Response(stroki.join("\n") + "\n", {
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  },
+
+  async email(message, env, ctx) {
+    // Read raw email as ArrayBuffer
+    const raw = await new Response(message.raw).arrayBuffer();
+    const to = message.to;
+
+    // 1. Проверяем доступность локального сервера (Таймаут 3 секунды)
+    const healthUrl = env.PRIYOMNIK 
+      ? env.PRIYOMNIK.replace(/\/(vhod|inbound)$/, "/health") 
+      : "";
+    let isLocalUp = false;
+
+    if (healthUrl) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      try {
+        const response = await fetch(healthUrl, { 
+          method: "GET", 
+          signal: controller.signal 
+        });
+        clearTimeout(timeoutId);
+        isLocalUp = response.ok;
+      } catch (error) {
+        clearTimeout(timeoutId);
+        isLocalUp = false;
+      }
     }
 
-    // Handle incoming email
-    if (request.method === "POST") {
-      const email = await request.text();
-
-      // Try to deliver to local server
+    // 2. ВЕТВЛЕНИЕ ЛОГИКИ
+    if (isLocalUp) {
+      // ✅ СЕРВЕР ДОСТУПЕН: доставляем локально
       try {
-        const healthCheck = await fetch(HEALTH_URL, {
-          method: "GET",
-          cf: { cacheTtl: 0 }
+        const otvet = await fetch(env.PRIYOMNIK, {
+          method: "POST",
+          headers: {
+            "Content-Type": "message/rfc822",
+            "X-Webhook-Key": env.KEY,
+            "X-Original-To": to,
+            "X-Ray-To": to,
+            "X-Ray-From": message.from,
+          },
+          body: raw,
         });
 
-        if (healthCheck.ok) {
-          const response = await fetch(INBOUND_URL, {
-            method: "POST",
-            headers: {
-              "Content-Type": "message/rfc822",
-              "X-Webhook-Key": WEBHOOK_KEY,
-              "X-Original-To": request.headers.get("X-Original-To") || ""
-            },
-            body: email
-          });
-
-          if (response.ok) {
-            return new Response("Delivered", { status: 200 });
-          }
+        if (!otvet.ok) {
+          // Локальная доставка упала — сохраняем в R2
+          console.warn(`Local delivery failed: ${otvet.status}. Saving to R2.`);
+          await saveToR2(env, raw, to);
+        } else {
+          console.log(`✅ Delivered locally to ${to}`);
         }
-      } catch (e) {
-        console.error("Local delivery failed:", e);
+      } catch (beda) {
+        // Исключение при доставке — сохраняем в R2
+        console.error(`Local delivery exception: ${beda}. Saving to R2.`);
+        await saveToR2(env, raw, to);
       }
-
-      // Fallback: save to R2
-      const key = `pending/${Date.now()}-${Math.random().toString(36).substr(2, 9)}.eml`;
-      await env.R2_BUCKET.put(key, email, {
-        httpMetadata: { contentType: "message/rfc822" }
-      });
-
-      return new Response("Queued in R2", { status: 202 });
+    } else {
+      // ❌ СЕРВЕР НЕДОСТУПЕН: сохраняем в R2 очередь
+      console.warn(`⚠️ Local server DOWN. Saving ${to} to R2 fallback queue.`);
+      await saveToR2(env, raw, to);
     }
-
-    return new Response("Not found", { status: 404 });
   }
 };
+
+async function saveToR2(env, rawBuffer, to) {
+  if (!env.MAIL_QUEUE) {
+    console.error("R2 MAIL_QUEUE binding is missing!");
+    return;
+  }
+
+  // Генерируем безопасное имя файла: pending/timestamp-random.eml
+  const timestamp = Date.now();
+  const randomStr = Math.random().toString(36).substring(2, 8);
+  const filename = `pending/${timestamp}-${randomStr}.eml`;
+
+  try {
+    await env.MAIL_QUEUE.put(filename, rawBuffer, {
+      httpMetadata: { contentType: "message/rfc822" },
+      customMetadata: { originalTo: to }
+    });
+    console.log(`✅ Saved to R2: ${filename}`);
+  } catch (error) {
+    console.error(`❌ Failed to save to R2: ${error}`);
+  }
+}
 ```
 
+3. **Set Environment Variables & Secrets**:
+   - Go to **Worker Settings → Variables and Secrets**
+   - Add variable: `PRIYOMNIK` = `https://mail.yourdomain.com/inbound`
+   - Add secret/variable: `KEY` = `your_actual_inbound_key` (must match `INBOUND_KEY` / `RAY_MAIL_KEY` in `priyomnik.service`)
 
-4. **Set Environment Variables**:
-   - Go to **Worker Settings → Variables → Environment Variables**
-   - Add variable: `INBOUND_KEY` = `your_actual_inbound_key` (same as in systemd service)
-   - Add variable: `HEALTH_URL` = `https://mail.yourdomain.com/health`
-   - Add variable: `INBOUND_URL` = `https://mail.yourdomain.com/inbound`
-
-5. **Bind R2 Bucket**:
+4. **Bind R2 Bucket**:
    - Go to **Worker Settings → R2 Bucket Bindings**
    - Click "Add binding"
-   - Variable name: `R2_BUCKET`
+   - Variable name: `MAIL_QUEUE`
    - R2 bucket: Select `mail-fallback-queue`
    - Click "Save and Deploy"
-
-
-**Important:**
-- Replace `yourdomain.com` with your actual domain
-- Replace `YOUR_INBOUND_KEY_HERE` with a secure random string (generate with `openssl rand -hex 32`)
-- Bind R2 bucket: Go to Worker Settings → R2 Bucket Bindings → Add binding with name `R2_BUCKET` pointing to your bucket
 
 
 ### 6. Cloudflare Tunnel Setup
@@ -390,7 +448,7 @@ The web interface has your domain hardcoded. Update it to match your domain:
 nano ~/projects/raymida-mail/frontend/app.js
 ```
 
-Find this line (around line 320):
+Find this line (around line 375):
 
 ```javascript
 const MAIL_DOMAIN = 'raymida.com';
@@ -601,7 +659,14 @@ raymida-mail/
 │   ├── index.html         # Main HTML structure
 │   ├── app.js             # Client-side logic
 │   ├── style.css          # Dark glassmorphism theme
-│   └── anime.js           # Animation library
+│   ├── anime.js           # Animation library
+│   └── purify.min.js      # Local DOMPurify library (v3.0.6)
+├── tests/
+│   ├── test_all_21_items.py # Master regression suite across all 21 items
+│   ├── test_tier1_static_cloudflare.py
+│   ├── test_tier2_inbound_s3.py
+│   ├── test_tier3_user_management.py
+│   └── test_tier4_webmail_api_frontend.py
 ├── systemd/
 │   ├── priyomnik.service  # Inbound receiver service template
 │   ├── pochta-web.service # Web API service template
