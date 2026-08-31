@@ -27,6 +27,7 @@ from __future__ import annotations
 import email
 import email.policy
 import hashlib
+import hmac
 import json
 import os
 import socketserver
@@ -36,12 +37,18 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 # Configuration
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+DATA_DIR = Path(os.environ.get("DATA_DIR", PROJECT_ROOT / "data"))
 MAIL_DIR = Path(os.environ.get("MAIL_DIR", Path.home() / "mail"))
 MAIL_DOMAIN = os.environ.get("MAIL_DOMAIN", "raymida.com")
 # Supports both INBOUND_KEY (recommended) and legacy RAY_MAIL_KEY for backward compatibility
 INBOUND_KEY = os.environ.get("INBOUND_KEY") or os.environ.get("RAY_MAIL_KEY") or ""
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8925
-MAX_SIZE = 25 * 1024 * 1024  # Reject emails larger than 25 MB
+try:
+    PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8925
+except ValueError:
+    PORT = 8925
+MAX_SIZE = int(os.environ.get("MAX_SIZE", 50 * 1024 * 1024))  # Reject emails larger than 50 MB
 
 
 def get_mailbox(address: str) -> str:
@@ -57,7 +64,6 @@ def get_mailbox(address: str) -> str:
         return "misc"
 
     name, domain = address.rsplit("@", 1)
-    MAIL_DOMAIN = os.environ.get("MAIL_DOMAIN", "raymida.com")
     if domain != MAIL_DOMAIN:
         return "misc"
 
@@ -78,13 +84,22 @@ def save_to_maildir(recipient: str, raw_data: bytes) -> Path:
     for subdir in ("tmp", "new", "cur"):
         (mailbox_dir / subdir).mkdir(parents=True, exist_ok=True)
 
-    # Maildir filename format: timestamp.pid_hash.hostname
-    timestamp = int(time.time())
-    file_hash = hashlib.sha1(raw_data[:4096]).hexdigest()[:12]
-    filename = f"{timestamp}.{file_hash}.raymida"
+    # Maildir filename format: timestamp.usec.pid.hash.hostname
+    now = time.time()
+    now_us = int(now * 1_000_000) % 1_000_000
+    pid = os.getpid()
+    digest = hashlib.sha1(raw_data[:4096]).hexdigest()[:8]
+    hostname = "raymida"
+    filename = f"{int(now)}.{now_us:06d}.{pid}.{digest}.{hostname}"
 
     tmp_path = mailbox_dir / "tmp" / filename
     new_path = mailbox_dir / "new" / filename
+
+    while new_path.exists():
+        now_us += 1
+        filename = f"{int(now)}.{now_us:06d}.{pid}.{digest}.{hostname}"
+        tmp_path = mailbox_dir / "tmp" / filename
+        new_path = mailbox_dir / "new" / filename
 
     # Atomic write (FIXED: was previously raw_dataTMP)
     tmp_path.write_bytes(raw_data)
@@ -112,12 +127,18 @@ def parse_headers(raw_data: bytes) -> dict:
 
 class InboundHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    timeout = 60
+    close_connection = False
 
     def _send_json_response(self, status: int, message: str):
         body = json.dumps({"ok": status < 300, "message": message}, ensure_ascii=False).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        if self.close_connection:
+            self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
 
@@ -129,28 +150,38 @@ class InboundHandler(BaseHTTPRequestHandler):
         if self.path.rstrip("/") in ("/health", "/live"):
             self._send_json_response(200, "alive")
         else:
+            self.close_connection = True
             self._send_json_response(404, "not found")
 
     def do_POST(self):
         if self.path.rstrip("/") not in ("/inbound", "/webhook"):
+            self.close_connection = True
             return self._send_json_response(404, "not found")
 
         # Security check
-        if not INBOUND_KEY or self.headers.get("X-Webhook-Key") != INBOUND_KEY:
+        webhook_key = (self.headers.get("X-Webhook-Key") or "").encode("utf-8")
+        if not INBOUND_KEY or not hmac.compare_digest(webhook_key, INBOUND_KEY.encode("utf-8")):
             print(f"· DENIED: Invalid key from {self.client_address[0]}", flush=True)
+            self.close_connection = True
             return self._send_json_response(403, "forbidden")
 
         # Size check
         try:
             content_length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
+            self.close_connection = True
             return self._send_json_response(400, "invalid content length")
 
-        if content_length <= 0 or content_length > MAX_SIZE:
+        if content_length < 0 or content_length > MAX_SIZE:
+            self.close_connection = True
             return self._send_json_response(413, "payload too large")
 
         # Read payload
-        raw_data = self.rfile.read(content_length)
+        try:
+            raw_data = self.rfile.read(content_length)
+        except TimeoutError:
+            self.close_connection = True
+            return self._send_json_response(408, "request timeout")
 
         # Determine recipient (prefer header, fallback to parsing)
         recipient = self.headers.get("X-Original-To") or self.headers.get("X-Ray-To") or ""
@@ -162,6 +193,7 @@ class InboundHandler(BaseHTTPRequestHandler):
             saved_path = save_to_maildir(recipient, raw_data)
         except Exception as e:
             print(f"· SAVE FAILED: {type(e).__name__}: {e}", flush=True)
+            self.close_connection = True
             return self._send_json_response(500, "internal server error")
 
         # Log success
