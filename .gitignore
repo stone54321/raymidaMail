@@ -1,0 +1,21 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Credentials & secrets
+.r2_credentials
+.raymida_users.json
+r2_credentials
+
+# Mail storage
+mail/
+data/
+
+# Multi-agent teamwork artifacts
+.agents/
+
+# IDE & OS
+.DS_Store
+.idea/
+.vscode/
