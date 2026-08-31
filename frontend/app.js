@@ -11,7 +11,13 @@ async function api(path, body) {
     throw new Error('session expired');
   }
 
-  const data = await response.json();
+  let data = {};
+  try {
+    data = await response.json();
+  } catch (err) {
+    data = {};
+  }
+
   if (!response.ok && path !== '/api/login') {
     throw new Error(data.error || `server error ${response.status}`);
   }
@@ -71,8 +77,6 @@ $('back-btn').onclick = (e) => {
   });
 };
 
-
-
 const dropZone = $('drop-zone');
 const fileInput = $('file-input');
 const attachmentsPreview = $('attachments-preview');
@@ -127,16 +131,15 @@ window.removeAttachment = (idx) => {
   renderAttachments();
 };
 
-
 $('reply-form').onsubmit = async (e) => {
   e.preventDefault();
   const btn = e.target.querySelector('button');
   const originalText = btn.textContent;
   btn.textContent = 'sending…';
+  $('reply-error').textContent = '';
 
   try {
     if (pendingAttachments.length > 0) {
-
       const formData = new FormData();
       formData.append('id', openedEmailId);
       formData.append('subject', $('reply-subject').value);
@@ -152,7 +155,13 @@ $('reply-form').onsubmit = async (e) => {
         body: formData
       });
 
-      const data = await response.json();
+      let data = {};
+      try {
+        data = await response.json();
+      } catch (jsonErr) {
+        data = {};
+      }
+
       if (response.ok && data.ok) {
         $('reply-text').value = '';
         pendingAttachments = [];
@@ -161,27 +170,41 @@ $('reply-form').onsubmit = async (e) => {
         $('reply-error').style.color = '#8f8';
         setTimeout(() => { $('reply-error').textContent = ''; }, 2000);
       } else {
-        $('reply-error').textContent = 'failed: ' + (data.error || '?');
+        $('reply-error').style.color = '';
+        $('reply-error').textContent = 'failed: ' + (data.error || `error ${response.status}`);
       }
     } else {
       // Обычная отправка без вложений
-      const response = await api('/api/send', {
-        id: openedEmailId,
-        subject: $('reply-subject').value,
-                                 text: $('reply-text').value
+      const response = await fetch('/api/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: openedEmailId,
+          subject: $('reply-subject').value,
+          text: $('reply-text').value
+        })
       });
 
-      if (response.ok) {
+      let data = {};
+      try {
+        data = await response.json();
+      } catch (jsonErr) {
+        data = {};
+      }
+
+      if (response.ok && data.ok) {
         $('reply-text').value = '';
         $('reply-error').textContent = 'sent';
         $('reply-error').style.color = '#8f8';
         setTimeout(() => { $('reply-error').textContent = ''; }, 2000);
       } else {
-        $('reply-error').textContent = 'failed: ' + (response.error || '?');
+        $('reply-error').style.color = '';
+        $('reply-error').textContent = 'failed: ' + (data.error || `error ${response.status}`);
       }
     }
   } catch (err) {
-    $('reply-error').textContent = 'Network error while sending';
+    $('reply-error').style.color = '';
+    $('reply-error').textContent = 'failed: ' + (err.message || 'Network error while sending');
   } finally {
     btn.textContent = originalText;
   }
@@ -202,15 +225,15 @@ async function startApp() {
   try {
     const boxes = await api('/api/boxes');
     $('mailboxes-list').innerHTML = boxes.map(y =>
-    `<a href="#" data-y="${y}" class="${y === currentMailbox ? 'active' : ''}">${y}</a>`
+      `<a href="#" data-y="${encodeURIComponent(y)}" class="${y === currentMailbox ? 'active' : ''}">${escapeHtml(y)}</a>`
     ).join('');
 
     $('mailboxes-list').querySelectorAll('a').forEach(a => a.onclick = (e) => {
       e.preventDefault();
-      currentMailbox = a.dataset.y;
+      currentMailbox = decodeURIComponent(a.dataset.y);
       anime({ targets: '#mailboxes-list a', opacity: [0.5, 1], duration: 300, delay: anime.stagger(50) });
       $('mailboxes-list').querySelectorAll('a').forEach(link => {
-        link.classList.toggle('active', link.dataset.y === currentMailbox);
+        link.classList.toggle('active', decodeURIComponent(link.dataset.y) === currentMailbox);
       });
       loadEmailList();
     });
@@ -251,7 +274,6 @@ async function loadEmailList() {
   }
 }
 
-
 let searchTimeout = null;
 $('search-input').addEventListener('input', (e) => {
   clearTimeout(searchTimeout);
@@ -289,7 +311,6 @@ async function openEmail(id) {
     const p = await api(`/api/mail?id=${encodeURIComponent(id)}`);
     openedEmailId = id;
 
-
     const emailCard = document.querySelector(`a.email-item[data-id="${encodeURIComponent(id)}"] .card`);
     if (emailCard) {
       emailCard.classList.remove('new-email');
@@ -300,64 +321,62 @@ async function openEmail(id) {
       if (el && text !== undefined && text !== null) el.textContent = text;
     };
 
-      let formattedDate = '';
-      try {
-        const d = new Date(p.mtime * 1000);
-        if (!isNaN(d.getTime())) {
-          formattedDate = d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
-        }
-      } catch (e) {}
-
-      setText('email-subject', p.subject || '(no subject)');
-      setText('email-from', `From: ${p.from || 'unknown'} · ${formattedDate}`);
-
-      const bodyEl = document.getElementById('email-body');
-      if (bodyEl) {
-        if (p.isHtml) {
-
-          bodyEl.innerHTML = DOMPurify.sanitize(p.text || '', {
-            USE_PROFILES: { html: true },
-            ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'em', 'strong', 'a', 'img', 'ul', 'ol', 'li', 'blockquote', 'pre', 'code', 'table', 'tr', 'td', 'th', 'thead', 'tbody', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span', 'hr', 'sub', 'sup'],
-            ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'style', 'width', 'height', 'target', 'rel'],
-            FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select'],
-            FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
-            ADD_ATTR: ['target'],
-          });
-
-          bodyEl.querySelectorAll('a').forEach(a => {
-            a.target = '_blank';
-            a.rel = 'noopener noreferrer';
-          });
-        } else {
-          bodyEl.textContent = p.text || '(empty)';
-        }
+    let formattedDate = '';
+    try {
+      const d = new Date(p.mtime * 1000);
+      if (!isNaN(d.getTime())) {
+        formattedDate = d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
       }
+    } catch (e) {}
 
+    setText('email-subject', p.subject || '(no subject)');
+    setText('email-from', `From: ${p.from || 'unknown'} · ${formattedDate}`);
 
-      const attachContainer = $('attachments-container');
-      const attachList = $('attachments-list');
-      attachList.innerHTML = '';
-      if (p.attachments && p.attachments.length > 0) {
-        attachContainer.classList.remove('hidden');
-        p.attachments.forEach((att, idx) => {
-          const link = document.createElement('a');
-          link.href = `/api/attachment?id=${encodeURIComponent(id)}&idx=${idx}`;
-          link.textContent = `📎 ${att.filename}`;
-          link.className = 'attachment-link';
-          link.style.color = '#4a9eff';
-          link.style.textDecoration = 'none';
-          link.style.fontSize = '14px';
-          attachList.appendChild(link);
+    const bodyEl = document.getElementById('email-body');
+    if (bodyEl) {
+      if (p.isHtml) {
+        bodyEl.innerHTML = DOMPurify.sanitize(p.text || '', {
+          USE_PROFILES: { html: true },
+          ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'em', 'strong', 'a', 'img', 'ul', 'ol', 'li', 'blockquote', 'pre', 'code', 'table', 'tr', 'td', 'th', 'thead', 'tbody', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'div', 'span', 'hr', 'sub', 'sup'],
+          ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'style', 'width', 'height', 'target', 'rel'],
+          FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select'],
+          FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
+          ADD_ATTR: ['target'],
+        });
+
+        bodyEl.querySelectorAll('a').forEach(a => {
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
         });
       } else {
-        attachContainer.classList.add('hidden');
+        bodyEl.textContent = p.text || '(empty)';
       }
+    }
 
-      const MAIL_DOMAIN = 'raymida.com'; // 🔧 Измени на свой домен
-      setText('email-to', `Reply from ${currentMailbox}@${MAIL_DOMAIN} to ${p.from || 'unknown'}`);
-      const replySubject = $('reply-subject');
-      if (replySubject) replySubject.value = /^re:/i.test(p.subject || '') ? p.subject : 'Re: ' + p.subject;
-      const replyText = $('reply-text');
+    const attachContainer = $('attachments-container');
+    const attachList = $('attachments-list');
+    attachList.innerHTML = '';
+    if (p.attachments && p.attachments.length > 0) {
+      attachContainer.classList.remove('hidden');
+      p.attachments.forEach((att, idx) => {
+        const link = document.createElement('a');
+        link.href = `/api/attachment?id=${encodeURIComponent(id)}&idx=${idx}`;
+        link.textContent = `📎 ${att.filename}`;
+        link.className = 'attachment-link';
+        link.style.color = '#4a9eff';
+        link.style.textDecoration = 'none';
+        link.style.fontSize = '14px';
+        attachList.appendChild(link);
+      });
+    } else {
+      attachContainer.classList.add('hidden');
+    }
+
+    const MAIL_DOMAIN = 'raymida.com'; // 🔧 Измени на свой домен
+    setText('email-to', `Reply from ${currentMailbox}@${MAIL_DOMAIN} to ${p.from || 'unknown'}`);
+    const replySubject = $('reply-subject');
+    if (replySubject) replySubject.value = /^re:/i.test(p.subject || '') ? p.subject : 'Re: ' + p.subject;
+    const replyText = $('reply-text');
     if (replyText) replyText.value = '';
     setText('reply-error', '');
 
@@ -368,7 +387,7 @@ async function openEmail(id) {
 }
 
 function escapeHtml(s) {
-  return (s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  return (s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 function animateEmailList() {
@@ -376,7 +395,7 @@ function animateEmailList() {
   if (newCards.length > 0) {
     anime({
       targets: newCards, opacity: [0, 1], translateY: [10, 0], easing: 'easeOutQuad', duration: 350, delay: anime.stagger(25, {start: 0}),
-          complete: () => newCards.forEach(card => card.classList.add('is-animated'))
+      complete: () => newCards.forEach(card => card.classList.add('is-animated'))
     });
   }
 }
