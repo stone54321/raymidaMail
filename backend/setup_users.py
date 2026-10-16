@@ -2,8 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 setup_users.py — Creates and manages user accounts with bcrypt-hashed passwords.
-Existing user accounts and their API keys are preserved on rerun so active sessions
-remain valid. New users are appended, and modified users have their passwords updated.
+Other accounts are preserved. Password changes rotate the user's key and revoke sessions.
 """
 from __future__ import annotations
 
@@ -12,6 +11,7 @@ import os
 import re
 import secrets
 import sys
+from auth_state import set_password
 from getpass import getpass
 from pathlib import Path
 
@@ -48,12 +48,12 @@ def load_existing_users() -> dict:
     try:
         with USERS_FILE.open("r", encoding="utf-8") as f:
             data = json.load(f)
-        return data if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            raise ValueError('Expected a user dictionary')
+        return data
     except Exception as e:
         print(f"⚠️ Failed to read existing users file ({e}).")
-        answer = input("Continue and overwrite it? (yes/n): ").strip().lower()
-        if answer == "yes":
-            return {}
+        print('Existing accounts were not changed. Repair the user file before continuing.')
         sys.exit(1)
 
 
@@ -64,7 +64,7 @@ def main():
     users = load_existing_users()
     if users:
         print(f"Existing users found: {', '.join(users)}")
-        print("Passwords will be updated, existing API keys preserved.")
+        print("Password changes revoke previous sessions for that user.")
 
     while True:
         username = input("\nUsername (e.g., ray or tony): ").strip().lower()
@@ -73,32 +73,21 @@ def main():
             continue
 
         password = getpass(f"Password for {username}: ")
-        if len(password) < 6:
-            print("❌ Password must be at least 6 characters")
+        if len(password) < 12 or len(password.encode('utf8')) > 72:
+            print("❌ Password must be at least 12 characters and at most 72 UTF-8 bytes")
             continue
 
         existing = users.get(username, {})
-        api_key = existing.get("api_key") or secrets.token_urlsafe(32)
-
-        users[username] = {
-            "password_hash": hash_password(password),
-            "api_key": api_key,
-        }
+        users[username] = set_password(USERS_FILE, username, hash_password(password))
 
         if existing:
-            print(f"✅ User '{username}' updated (API key preserved)")
+            print(f"✅ User '{username}' updated (previous sessions revoked)")
         else:
             print(f"✅ User '{username}' created (API key generated)")
 
         another = input("\nAdd/modify another user? (y/n): ").strip().lower()
         if another != "y":
             break
-
-    USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with USERS_FILE.open("w", encoding="utf-8") as f:
-        json.dump(users, f, indent=2)
-
-    os.chmod(USERS_FILE, 0o600)
 
     print(f"\n💾 Users saved to {USERS_FILE}")
     print("🔒 File permissions set to 600 (read/write for owner only)")

@@ -16,3 +16,10 @@ data/
 .DS_Store
 .idea/
 .vscode/
+.local-linux/
+.env
+.env.*
+!.env.example
+*.pem
+*.sqlite*
+*.db

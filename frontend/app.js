@@ -1,9 +1,9 @@
 const $ = (id) => document.getElementById(id);
-let currentMailbox = 'ray', openedEmailId = null;
+let currentMailbox = 'ray', openedEmailId = null, currentFolder = 'inbox', pendingSendId = null;
 
 async function api(path, body) {
   const response = await fetch(path, body
-  ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+  ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Raymida-Send-ID': pendingSendId || '' }, body: JSON.stringify(body) }
   : {});
 
   if (response.status === 403 && path !== '/api/login') {
@@ -104,6 +104,7 @@ fileInput.addEventListener('change', (e) => {
 });
 
 function handleFiles(files) {
+  pendingSendId = null;
   for (const file of files) {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -127,13 +128,17 @@ function renderAttachments() {
 }
 
 window.removeAttachment = (idx) => {
+  pendingSendId = null;
   pendingAttachments.splice(idx, 1);
   renderAttachments();
 };
 
 $('reply-form').onsubmit = async (e) => {
   e.preventDefault();
-  const btn = e.target.querySelector('button');
+  const btn = e.target.querySelector('button[type="submit"]');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  pendingSendId ||= crypto.randomUUID();
   const originalText = btn.textContent;
   btn.textContent = 'sending…';
   $('reply-error').textContent = '';
@@ -152,6 +157,7 @@ $('reply-form').onsubmit = async (e) => {
 
       const response = await fetch('/api/send', {
         method: 'POST',
+        headers: { 'X-Raymida-Send-ID': pendingSendId },
         body: formData
       });
 
@@ -164,6 +170,7 @@ $('reply-form').onsubmit = async (e) => {
 
       if (response.ok && data.ok) {
         $('reply-text').value = '';
+        pendingSendId = null;
         pendingAttachments = [];
         renderAttachments();
         $('reply-error').textContent = 'sent with attachments';
@@ -177,7 +184,7 @@ $('reply-form').onsubmit = async (e) => {
       // Обычная отправка без вложений
       const response = await fetch('/api/send', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Raymida-Send-ID': pendingSendId || '' },
         body: JSON.stringify({
           id: openedEmailId,
           subject: $('reply-subject').value,
@@ -194,6 +201,7 @@ $('reply-form').onsubmit = async (e) => {
 
       if (response.ok && data.ok) {
         $('reply-text').value = '';
+        pendingSendId = null;
         $('reply-error').textContent = 'sent';
         $('reply-error').style.color = '#8f8';
         setTimeout(() => { $('reply-error').textContent = ''; }, 2000);
@@ -207,6 +215,7 @@ $('reply-form').onsubmit = async (e) => {
     $('reply-error').textContent = 'failed: ' + (err.message || 'Network error while sending');
   } finally {
     btn.textContent = originalText;
+    btn.disabled = false;
   }
 };
 
@@ -224,6 +233,7 @@ function base64ToBlob(base64, mimeType) {
 async function startApp() {
   try {
     const boxes = await api('/api/boxes');
+    currentMailbox = boxes[0] || currentMailbox;
     $('mailboxes-list').innerHTML = boxes.map(y =>
       `<a href="#" data-y="${encodeURIComponent(y)}" class="${y === currentMailbox ? 'active' : ''}">${escapeHtml(y)}</a>`
     ).join('');
@@ -251,13 +261,13 @@ async function loadEmailList() {
 
   try {
     // 🔒 Больше не передаем ?y=, сервер сам знает, чей это ящик
-    const emails = await api('/api/list');
+    const emails = await api('/api/list?folder=' + currentFolder);
 
     $('email-list').innerHTML = emails.length ? emails.map(p => `
     <a class="email-item" href="#" data-id="${encodeURIComponent(p.id)}">
     <div class="card ${p.isNew ? 'new-email' : ''}">
     <div class="subject">${escapeHtml(p.subject)}</div>
-    <div class="muted">${escapeHtml(p.from)} · ${new Date(p.mtime * 1000).toLocaleString()} ${p.attachments?.length ? '📎' : ''}</div>
+    <div class="muted">${escapeHtml(currentFolder === 'sent' ? p.to : p.from)} · ${new Date(p.mtime * 1000).toLocaleString()} ${p.attachments?.length ? '📎' : ''}</div>
     </div>
     </a>`).join('') : '<div class="card">no emails</div>';
 
@@ -286,13 +296,13 @@ $('search-input').addEventListener('input', (e) => {
 
   searchTimeout = setTimeout(async () => {
     try {
-      const results = await api(`/api/search?q=${encodeURIComponent(query)}`);
+      const results = await api(`/api/search?q=${encodeURIComponent(query)}&folder=${currentFolder}`);
 
       $('email-list').innerHTML = results.length ? results.map(p => `
       <a class="email-item" href="#" data-id="${encodeURIComponent(p.id)}">
       <div class="card ${p.isNew ? 'new-email' : ''}">
       <div class="subject">${escapeHtml(p.subject)}</div>
-      <div class="muted">${escapeHtml(p.from)} · ${new Date(p.mtime * 1000).toLocaleString()}</div>
+      <div class="muted">${escapeHtml(currentFolder === 'sent' ? p.to : p.from)} · ${new Date(p.mtime * 1000).toLocaleString()}</div>
       </div>
       </a>`).join('') : '<div class="card">no results</div>';
 
@@ -310,6 +320,10 @@ async function openEmail(id) {
   try {
     const p = await api(`/api/mail?id=${encodeURIComponent(id)}`);
     openedEmailId = id;
+    pendingSendId = null;
+    pendingAttachments = [];
+    renderAttachments();
+    $('reply-form').classList.toggle('hidden', p.folder === 'sent');
 
     const emailCard = document.querySelector(`a.email-item[data-id="${encodeURIComponent(id)}"] .card`);
     if (emailCard) {
@@ -330,7 +344,7 @@ async function openEmail(id) {
     } catch (e) {}
 
     setText('email-subject', p.subject || '(no subject)');
-    setText('email-from', `From: ${p.from || 'unknown'} · ${formattedDate}`);
+    setText('email-from', `${p.folder === 'sent' ? 'To' : 'From'}: ${p.folder === 'sent' ? (p.to || 'unknown') : (p.from || 'unknown')} · ${formattedDate}`);
 
     const bodyEl = document.getElementById('email-body');
     if (bodyEl) {
@@ -373,7 +387,7 @@ async function openEmail(id) {
     }
 
     const MAIL_DOMAIN = 'raymida.com'; // 🔧 Измени на свой домен
-    setText('email-to', `Reply from ${currentMailbox}@${MAIL_DOMAIN} to ${p.from || 'unknown'}`);
+    setText('email-to', `Reply from ${currentMailbox}@${MAIL_DOMAIN} to ${p.replyTo || p.from || 'unknown'}`);
     const replySubject = $('reply-subject');
     if (replySubject) replySubject.value = /^re:/i.test(p.subject || '') ? p.subject : 'Re: ' + p.subject;
     const replyText = $('reply-text');

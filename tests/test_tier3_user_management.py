@@ -61,8 +61,8 @@ class TestItem6IdempotentUserSetup(unittest.TestCase):
         self.assertEqual(loaded["alice"]["api_key"], "alice_secret_token_1")
         self.assertEqual(loaded["bob"]["api_key"], "bob_secret_token_2")
 
-    def test_idempotent_user_update_preserves_api_key(self):
-        """Verify updating a user's password preserves their existing api_key."""
+    def test_password_update_rotates_api_key(self):
+        """A password update revokes the key used by previous sessions."""
         initial_data = {
             "ray": {"password_hash": "$2b$12$oldhash", "api_key": "existing_session_api_key_12345"}
         }
@@ -76,8 +76,7 @@ class TestItem6IdempotentUserSetup(unittest.TestCase):
 
         saved = json.loads(self.users_file.read_text(encoding="utf-8"))
         self.assertIn("ray", saved)
-        # API key MUST be preserved
-        self.assertEqual(saved["ray"]["api_key"], "existing_session_api_key_12345")
+        self.assertNotEqual(saved["ray"]["api_key"], "existing_session_api_key_12345")
         # Password hash MUST be updated
         self.assertNotEqual(saved["ray"]["password_hash"], "$2b$12$oldhash")
 

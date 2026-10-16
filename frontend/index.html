@@ -4,7 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <title>Raymida Mail</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20261016">
+  <link rel="stylesheet" href="mail-controls.css?v=20261016">
 </head>
 <body>
 
@@ -28,6 +29,15 @@
   </header>
 
   <main>
+    <div class="mail-toolbar" aria-label="Папки и аккаунт">
+      <button id="folder-inbox" type="button" class="btn-ghost" aria-pressed="true">Входящие</button>
+      <button id="folder-sent" type="button" class="btn-ghost" aria-pressed="false">Отправленные</button>
+      <span class="account-controls">
+        <button id="password-open" type="button" class="btn-ghost">Пароль</button>
+        <button id="logout" type="button" class="btn-ghost">Выйти</button>
+      </span>
+      <span id="account-status" role="status"></span>
+    </div>
     <div class="search-container" style="margin-bottom: 16px;">
       <input id="search-input" type="text" placeholder=" Search emails..."
          style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px;">
@@ -73,6 +83,17 @@
 
 <script src="anime.js"></script>
 <script src="purify.min.js"></script>
-<script src="app.js" defer></script>
+<dialog id="password-dialog" aria-labelledby="password-title">
+  <form id="password-form">
+    <h2 id="password-title">Изменить пароль</h2>
+    <label>Текущий пароль<input id="password-old" type="password" autocomplete="current-password" required></label>
+    <label>Новый пароль<input id="password-new" type="password" autocomplete="new-password" minlength="12" required></label>
+    <label>Повтори новый пароль<input id="password-confirm" type="password" autocomplete="new-password" minlength="12" required></label>
+    <p id="password-error" role="alert"></p>
+    <div class="password-actions"><button id="password-cancel" type="button" class="btn-ghost">Отмена</button><button id="password-save" type="submit">Сохранить</button></div>
+  </form>
+</dialog>
+<script src="app.js?v=20261016" defer></script>
+<script src="mail-controls.js?v=20261016" defer></script>
 </body>
 </html>
