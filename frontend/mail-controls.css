@@ -1,0 +1,14 @@
+.mail-toolbar {display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 16px;}
+.mail-toolbar button {padding:8px 14px;font-size:13px;}
+.mail-toolbar [aria-pressed="true"] {outline:2px solid #818cf8;outline-offset:2px;}
+.account-controls {display:flex;gap:8px;margin-left:auto;}
+#account-status {font-size:13px;color:#a7f3d0;}
+#password-dialog {color:#f8fafc;background:#111827;border:1px solid #475569;border-radius:16px;padding:24px;width:min(430px,calc(100% - 32px));box-sizing:border-box;}
+#password-dialog::backdrop {background:rgb(0 0 0 / 70%);backdrop-filter:blur(5px);}
+#password-form {display:grid;gap:14px;}
+#password-form h2 {margin:0;}
+#password-form label {display:grid;gap:6px;font-size:14px;}
+#password-form input {width:100%;box-sizing:border-box;}
+.password-actions {display:flex;justify-content:flex-end;gap:10px;}
+#password-error {color:#fca5a5;font-size:13px;margin:0;}
+@media(max-width:540px){.account-controls{width:100%;margin-left:0;}#password-dialog{padding:18px;}}

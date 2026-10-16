@@ -63,8 +63,8 @@ A self-hosted, fault-tolerant email system with multi-user support, running on a
 **Key Design Decisions:**
 - **No port 25 required**: Cloudflare Email Routing receives SMTP and forwards via HTTPS
 - **No public IP required**: Cloudflare Tunnel provides secure inbound connectivity
-- **Zero data loss**: R2 bucket acts as a Dead Letter Queue when server is offline
-- **Maildir format**: Atomic writes ensure no corruption even on power loss
+- **Durable fallback**: R2 queues mail when the receiver is unavailable; if both fail, the Worker explicitly rejects the email instead of silently accepting it
+- **Maildir format**: Flush files before atomic rename and acknowledgement
 
 ---
 
@@ -75,14 +75,14 @@ A self-hosted, fault-tolerant email system with multi-user support, running on a
 - **Fault tolerance** — emails queue in R2 when server is down, auto-sync on recovery
 - **Multi-user support** — isolated mailboxes with bcrypt password hashing
 - **MIME attachments** — drag & drop upload, base64 encoding, full download support
-- **Full-text search** — search across From, Subject, and body with 300ms debounce
+- **Mail search** — search From, To, Subject and a bounded body preview in the selected folder
 
 ### Security
 - **Built-in Fail2Ban** — in-memory IP banning with whitelist support
 - **Real IP detection** — reads `Cf-Connecting-Ip` header through Cloudflare Tunnel
 - **XSS protection** — DOMPurify sanitizes all HTML emails
 - **Secret isolation** — credentials stored in `~/.r2_credentials` (mode 600), never in Git
-- **API key authentication** — per-user API keys with cookie-based sessions
+- **Expiring sessions** — signed browser cookies bound to the current password and key; password changes revoke previous sessions and API keys
 
 ### UI/UX
 - **Dark glassmorphism theme** — modern, beautiful interface
@@ -192,131 +192,11 @@ Go to Cloudflare Dashboard → Email → Email Routing
 Go to Cloudflare Dashboard → Workers & Pages → Create
 
 1. Name: `mail-router`
-2. Paste this code:
-
-```javascript
-/**
- * Email Worker for raymida.com - catches email and forwards to our receiver.
- * With R2 fallback: if local server is down, saves to R2 queue.
- * 
- * Variables (Settings → Variables and Secrets):
- *   PRIYOMNIK = https://mail.yourdomain.com/inbound
- *   KEY       = Your secret key (INBOUND_KEY or RAY_MAIL_KEY)
- * 
- * R2 Binding:
- *   MAIL_QUEUE → mail-fallback-queue
- * 
- * Email Routing Rules: ray@yourdomain.com (or *@yourdomain.com) → Send to Worker.
- */
-export default {
-  async fetch(request, env, ctx) {
-    // Health check endpoint
-    const stroki = [];
-    stroki.push("📮 Email Worker (R2 Fallback)");
-    stroki.push(`PRIYOMNIK = ${env.PRIYOMNIK || "❌ NOT SET"}`);
-    stroki.push(`KEY = ${env.KEY ? `✓ ${env.KEY.length} chars` : "❌ NOT SET"}`);
-    stroki.push(`R2 QUEUE = ${env.MAIL_QUEUE ? "✓ Bound" : "❌ Not bound"}`);
-    
-    if (env.PRIYOMNIK && env.KEY) {
-      const healthUrl = env.PRIYOMNIK.replace(/\/(vhod|inbound)$/, "/health");
-      try {
-        const otvet = await fetch(healthUrl, { method: "GET" });
-        stroki.push(`receiver ${healthUrl} → ${otvet.status} ${await otvet.text()}`);
-      } catch (beda) {
-        stroki.push(`receiver unavailable: ${beda}`);
-      }
-    }
-    
-    return new Response(stroki.join("\n") + "\n", {
-      headers: { "content-type": "text/plain; charset=utf-8" },
-    });
-  },
-
-  async email(message, env, ctx) {
-    // Read raw email as ArrayBuffer
-    const raw = await new Response(message.raw).arrayBuffer();
-    const to = message.to;
-
-    // 1. Проверяем доступность локального сервера (Таймаут 3 секунды)
-    const healthUrl = env.PRIYOMNIK 
-      ? env.PRIYOMNIK.replace(/\/(vhod|inbound)$/, "/health") 
-      : "";
-    let isLocalUp = false;
-
-    if (healthUrl) {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-      try {
-        const response = await fetch(healthUrl, { 
-          method: "GET", 
-          signal: controller.signal 
-        });
-        clearTimeout(timeoutId);
-        isLocalUp = response.ok;
-      } catch (error) {
-        clearTimeout(timeoutId);
-        isLocalUp = false;
-      }
-    }
-
-    // 2. ВЕТВЛЕНИЕ ЛОГИКИ
-    if (isLocalUp) {
-      // ✅ СЕРВЕР ДОСТУПЕН: доставляем локально
-      try {
-        const otvet = await fetch(env.PRIYOMNIK, {
-          method: "POST",
-          headers: {
-            "Content-Type": "message/rfc822",
-            "X-Webhook-Key": env.KEY,
-            "X-Original-To": to,
-            "X-Ray-To": to,
-            "X-Ray-From": message.from,
-          },
-          body: raw,
-        });
-
-        if (!otvet.ok) {
-          // Локальная доставка упала — сохраняем в R2
-          console.warn(`Local delivery failed: ${otvet.status}. Saving to R2.`);
-          await saveToR2(env, raw, to);
-        } else {
-          console.log(`✅ Delivered locally to ${to}`);
-        }
-      } catch (beda) {
-        // Исключение при доставке — сохраняем в R2
-        console.error(`Local delivery exception: ${beda}. Saving to R2.`);
-        await saveToR2(env, raw, to);
-      }
-    } else {
-      // ❌ СЕРВЕР НЕДОСТУПЕН: сохраняем в R2 очередь
-      console.warn(`⚠️ Local server DOWN. Saving ${to} to R2 fallback queue.`);
-      await saveToR2(env, raw, to);
-    }
-  }
-};
-
-async function saveToR2(env, rawBuffer, to) {
-  if (!env.MAIL_QUEUE) {
-    console.error("R2 MAIL_QUEUE binding is missing!");
-    return;
-  }
-
-  // Генерируем безопасное имя файла: pending/timestamp-random.eml
-  const timestamp = Date.now();
-  const randomStr = Math.random().toString(36).substring(2, 8);
-  const filename = `pending/${timestamp}-${randomStr}.eml`;
-
-  try {
-    await env.MAIL_QUEUE.put(filename, rawBuffer, {
-      httpMetadata: { contentType: "message/rfc822" },
-      customMetadata: { originalTo: to }
-    });
-    console.log(`✅ Saved to R2: ${filename}`);
-  } catch (error) {
-    console.error(`❌ Failed to save to R2: ${error}`);
-  }
-}
-```
+2. Paste the source from [`cloudflare/email-worker.mjs`](cloudflare/email-worker.mjs).
+   This is the authoritative Worker source; do not reuse the old inline sample.
+   If an existing Worker also handles website forms, build the combined Worker in
+   the storefront project with this file as its base before deploying. Keep the
+   existing bindings and Email Routing rules.
 
 3. **Set Environment Variables & Secrets**:
    - Go to **Worker Settings → Variables and Secrets**
@@ -434,7 +314,7 @@ python3 setup_users.py
 
 Follow the prompts:
 - Enter username (e.g., ray, tony)
-- Enter password (minimum 6 characters)
+- Enter password (12 characters minimum, 72 UTF-8 bytes maximum)
 - Add more users or finish
 
 This creates `~/.raymida_users.json` with bcrypt-hashed passwords.
@@ -558,9 +438,45 @@ Send an email to anyname@yourdomain.com
 ### Sending Email
 
 1. Open any email in the interface
-2. Click "Reply" or compose new
+2. Write a reply below the message
 3. Drag & drop attachments if needed
 4. Click "Send"
+5. Open **Отправленные** to see accepted replies, recipients and attachments.
+
+Resend is used only for outgoing delivery. A Sent copy means Resend accepted the
+message; it is not proof of final delivery to the recipient. Sent history starts
+with replies sent after this update; old replies are not reconstructed.
+
+A reply is staged locally before calling Resend. The UI retains one send ID for
+an unchanged retry, and the provider request uses an `Idempotency-Key`. Accepted
+messages recover into Sent without sending again if the local final move failed.
+Uncertain retries older than 23 hours are blocked because Resend's idempotency
+window is 24 hours. If an error persists, check provider status before starting a
+new reply or reloading and sending again.
+
+### Changing a password
+
+Click **Пароль** in the mailbox toolbar, enter your current password and confirm
+the new one. Other browser sessions and the previous Bearer API key stop working;
+the current browser receives a new signed session. The CLI `setup_users.py`
+performs the same revocation when an administrator resets a password.
+
+Browser sessions expire after 30 days. Existing raw-key cookies are intentionally
+invalid after upgrading: sign in once using your existing password. Cookies are
+Secure, HttpOnly and SameSite=Lax. `COOKIE_SECURE=false` is only for an isolated
+localhost preview; keep the default `true` for the public service.
+
+### Recovery from R2
+
+The sync job routes each object using its `originalTo` envelope metadata, including
+BCC mail. Legacy objects without metadata use `To` only when it contains one
+unambiguous local recipient. Invalid or ambiguous objects stay in R2 for review.
+One failed object does not block later objects; any failure makes the job exit
+nonzero. R2 deletion follows a flushed local file and directory entry.
+
+If both the receiver and R2 fail, the Worker calls `setReject`, which gives a
+permanent SMTP rejection. The sender may need to send again; automatic retry is
+not guaranteed. See [Cloudflare's rejection and error handling documentation](https://developers.cloudflare.com/email-service/api/route-emails/email-handler/).
 
 ### Searching
 
@@ -660,7 +576,7 @@ raymida-mail/
 │   ├── app.js             # Client-side logic
 │   ├── style.css          # Dark glassmorphism theme
 │   ├── anime.js           # Animation library
-│   └── purify.min.js      # Local DOMPurify library (v3.0.6)
+│   └── purify.min.js      # Local DOMPurify library
 ├── tests/
 │   ├── test_all_21_items.py # Master regression suite across all 21 items
 │   ├── test_tier1_static_cloudflare.py
@@ -678,6 +594,20 @@ raymida-mail/
 ```
 
 ---
+
+## Testing
+
+Run without production users, mailboxes or provider credentials:
+
+```bash
+python3 -m unittest discover -s tests
+node --test tests/email-worker.test.mjs
+```
+
+The failure-path suite uses temporary mailboxes and a fake outgoing provider. It
+covers recipient metadata, ambiguous queues, password revocation, concurrent
+updates, Sent MIME attachments, repeated send IDs and recovery after a local
+commit failure. No real messages are sent.
 
 ## 📄 License
 

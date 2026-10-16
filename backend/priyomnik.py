@@ -35,6 +35,7 @@ import sys
 import time
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
+from maildir_forms import save_form_once
 
 # Configuration
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -80,6 +81,9 @@ def save_to_maildir(recipient: str, raw_data: bytes) -> Path:
     Saves email using the Maildir atomic write pattern:
     write to 'tmp', then rename to 'new'.
     """
+    form_path = save_form_once(MAIL_DIR, get_mailbox(recipient), raw_data)
+    if form_path is not None:
+        return form_path
     mailbox_dir = MAIL_DIR / get_mailbox(recipient)
     for subdir in ("tmp", "new", "cur"):
         (mailbox_dir / subdir).mkdir(parents=True, exist_ok=True)
@@ -102,8 +106,20 @@ def save_to_maildir(recipient: str, raw_data: bytes) -> Path:
         new_path = mailbox_dir / "new" / filename
 
     # Atomic write (FIXED: was previously raw_dataTMP)
-    tmp_path.write_bytes(raw_data)
-    tmp_path.rename(new_path)  # Atomic on POSIX systems
+    descriptor = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, 'wb') as output:
+            output.write(raw_data)
+            output.flush()
+            os.fsync(output.fileno())
+        tmp_path.rename(new_path)
+        descriptor = os.open(new_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
     return new_path
 

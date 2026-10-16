@@ -641,7 +641,9 @@ class TestSessionCookiesAndSecurityHeaders(unittest.TestCase):
         self.assertIn("set-cookie", headers)
         cookie = headers["set-cookie"]
 
-        self.assertIn("auth_key=ray_test_key_cookie", cookie)
+        token = cookie.split(';', 1)[0].split('=', 1)[1]
+        self.assertEqual(pochta_api.session_user(token, pochta_api.load_users()), 'ray')
+        self.assertNotIn('ray_test_key_cookie', cookie)
         self.assertIn("HttpOnly", cookie)
         self.assertIn("Secure", cookie)
         self.assertIn("SameSite=Lax", cookie)
@@ -726,6 +728,7 @@ class TestDOMPurifyAndFrontendXSSDefense(unittest.TestCase):
 
         # Check script tags
         script_srcs = re.findall(r'<script\s+[^>]*src=["\']([^"\']+)["\']', index_html)
+        script_srcs = [source.split('?', 1)[0] for source in script_srcs]
         self.assertIn("purify.min.js", script_srcs)
         self.assertIn("app.js", script_srcs)
 

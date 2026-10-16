@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import email
 import email.policy
+from email.utils import getaddresses
 import hashlib
 import os
 import sys
@@ -15,6 +16,7 @@ import time
 from pathlib import Path
 import boto3
 from botocore.client import Config
+from maildir_forms import save_form_once
 
 # Dynamic path resolution
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -33,7 +35,7 @@ R2_ENDPOINT = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 
 
 def get_mailbox(address: str) -> str:
-    address = (address or "").strip().lower()
+    address = email.utils.parseaddr((address or "").strip())[1].lower()
     if "@" not in address:
         return "misc"
     name, domain = address.rsplit("@", 1)
@@ -45,6 +47,9 @@ def get_mailbox(address: str) -> str:
 
 
 def save_to_maildir(mailbox: str, raw_data: bytes) -> Path:
+    form_path = save_form_once(LOCAL_MAIL_DIR, mailbox, raw_data)
+    if form_path is not None:
+        return form_path
     mailbox_dir = LOCAL_MAIL_DIR / mailbox
     for subdir in ("tmp", "new", "cur"):
         (mailbox_dir / subdir).mkdir(parents=True, exist_ok=True)
@@ -66,15 +71,44 @@ def save_to_maildir(mailbox: str, raw_data: bytes) -> Path:
         tmp_path = mailbox_dir / "tmp" / filename
         new_path = mailbox_dir / "new" / filename
 
-    tmp_path.write_bytes(raw_data)
-    tmp_path.rename(new_path)
+    descriptor = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, 'wb') as output:
+            output.write(raw_data)
+            output.flush()
+            os.fsync(output.fileno())
+        tmp_path.rename(new_path)
+        descriptor = os.open(new_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
     return new_path
+
+
+def queued_mailbox(file_obj, raw_data):
+    metadata = {key.lower(): value for key, value in file_obj.get('Metadata', {}).items()}
+    if 'originalto' in metadata:
+        addresses = getaddresses([metadata['originalto']])
+    else:
+        # Legacy objects have no envelope metadata. Never guess between recipients.
+        msg = email.message_from_bytes(raw_data, policy=email.policy.default)
+        addresses = getaddresses(msg.get_all('To', []))
+    if len(addresses) != 1 or not addresses[0][1]:
+        raise ValueError('Ambiguous recipient; object kept in R2')
+    mailbox = get_mailbox(addresses[0][1])
+    if mailbox == 'misc':
+        raise ValueError('Recipient cannot be routed; object kept in R2')
+    return mailbox
 
 
 def sync_from_r2():
     if not all([R2_ACCOUNT_ID, R2_ACCESS_KEY, R2_SECRET_KEY]):
         print("❌ Error: R2 environment variables not found. Check systemd service.")
-        return
+        return False
 
     print(f"[{time.strftime('%H:%M:%S')}] Connecting to R2...")
 
@@ -90,6 +124,7 @@ def sync_from_r2():
     try:
         paginator = s3.get_paginator('list_objects_v2')
         processed_count = 0
+        failed_count = 0
 
         for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix='pending/'):
             for obj in page.get('Contents', []):
@@ -98,28 +133,31 @@ def sync_from_r2():
                     continue
 
                 print(f"   Downloading: {key}")
-                file_obj = s3.get_object(Bucket=R2_BUCKET_NAME, Key=key)
-                raw_data = file_obj['Body'].read()
+                try:
+                    file_obj = s3.get_object(Bucket=R2_BUCKET_NAME, Key=key)
+                    try:
+                        raw_data = file_obj['Body'].read()
+                    finally:
+                        file_obj['Body'].close()
+                    mailbox = queued_mailbox(file_obj, raw_data)
+                    save_to_maildir(mailbox, raw_data)
+                    s3.delete_object(Bucket=R2_BUCKET_NAME, Key=key)
+                    print(f"    ↳ Saved to {mailbox}; removed from R2")
+                    processed_count += 1
+                except Exception as error:
+                    failed_count += 1
+                    print(f"    Failed ({type(error).__name__}); object retained for retry")
 
-                msg = email.message_from_bytes(raw_data, policy=email.policy.default)
-                to_header = msg.get("To", "")
-                mailbox = get_mailbox(to_header)
-
-                save_to_maildir(mailbox, raw_data)
-                print(f"    ↳ Saved to {LOCAL_MAIL_DIR}/{mailbox}/new/")
-
-                s3.delete_object(Bucket=R2_BUCKET_NAME, Key=key)
-                print(f"    ↳ Deleted from R2")
-                processed_count += 1
-
-        if processed_count == 0:
+        if processed_count == 0 and failed_count == 0:
             print("✅ R2 queue is empty.")
         else:
-            print(f"✅ Synchronization completed. Processed: {processed_count}")
+            print(f"Synchronization completed. Processed: {processed_count}; failed: {failed_count}")
+        return failed_count == 0
 
     except Exception as e:
         print(f"❌ Error: {type(e).__name__}: {e}")
+        return False
 
 
 if __name__ == "__main__":
-    sync_from_r2()
+    raise SystemExit(0 if sync_from_r2() else 1)
