@@ -659,7 +659,9 @@ commit failure. No real messages are sent.
 
 ## 📄 License
 
-MIT License - feel free to use, modify, and distribute.
+This project is licensed under the [MIT License](LICENSE).
+
+Bundled third-party libraries retain their original licenses.
 
 ---
 
