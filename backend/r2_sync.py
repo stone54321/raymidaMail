@@ -10,13 +10,16 @@ import email
 import email.policy
 from email.utils import getaddresses
 import hashlib
+import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
 import boto3
 from botocore.client import Config
 from maildir_forms import save_form_once
+from maildir_delivery import deliver_once
 
 # Dynamic path resolution
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -46,7 +49,22 @@ def get_mailbox(address: str) -> str:
     return clean_name or "misc"
 
 
-def save_to_maildir(mailbox: str, raw_data: bytes) -> Path:
+def object_identity(key: str) -> str:
+    """Identity of an immutable Worker object, independent of listing order."""
+    namespace = json.dumps([R2_ACCOUNT_ID, R2_BUCKET_NAME, key], ensure_ascii=False, separators=(',', ':'))
+    return hashlib.sha256(namespace.encode('utf-8')).hexdigest()
+
+
+def save_to_maildir(mailbox: str, raw_data: bytes, object_id: str | None = None) -> Path:
+    if object_id is not None:
+        if not re.fullmatch(r'[a-f0-9]{64}', object_id):
+            raise ValueError('Invalid R2 object identity')
+        return deliver_once(
+            LOCAL_MAIL_DIR, mailbox, raw_data, f'r2-{object_id}.raymida',
+            LOCAL_MAIL_DIR / '.r2-receipts' / f'{object_id}.json',
+            deliver=lambda: save_form_once(LOCAL_MAIL_DIR, mailbox, raw_data),
+        )
+    # Preserve the two-argument interface for callers without a queue identity.
     form_path = save_form_once(LOCAL_MAIL_DIR, mailbox, raw_data)
     if form_path is not None:
         return form_path
@@ -90,13 +108,21 @@ def save_to_maildir(mailbox: str, raw_data: bytes) -> Path:
 
 
 def queued_mailbox(file_obj, raw_data):
-    metadata = {key.lower(): value for key, value in file_obj.get('Metadata', {}).items()}
+    metadata = {}
+    for key, value in file_obj.get('Metadata', {}).items():
+        name = key.lower()
+        if name in metadata and metadata[name] != value:
+            raise ValueError('Conflicting recipient metadata; object kept in R2')
+        metadata[name] = value
     if 'originalto' in metadata:
-        addresses = getaddresses([metadata['originalto']])
+        recipients = [metadata['originalto']]
     else:
         # Legacy objects have no envelope metadata. Never guess between recipients.
         msg = email.message_from_bytes(raw_data, policy=email.policy.default)
-        addresses = getaddresses(msg.get_all('To', []))
+        recipients = [str(value) for value in msg.get_all('To', [])]
+    if any(not isinstance(value, str) or any(ord(c) < 32 or ord(c) == 127 for c in value) for value in recipients):
+        raise ValueError('Invalid recipient metadata; object kept in R2')
+    addresses = getaddresses(recipients)
     if len(addresses) != 1 or not addresses[0][1]:
         raise ValueError('Ambiguous recipient; object kept in R2')
     mailbox = get_mailbox(addresses[0][1])
@@ -140,13 +166,14 @@ def sync_from_r2():
                     finally:
                         file_obj['Body'].close()
                     mailbox = queued_mailbox(file_obj, raw_data)
-                    save_to_maildir(mailbox, raw_data)
+                    save_to_maildir(mailbox, raw_data, object_identity(key))
                     s3.delete_object(Bucket=R2_BUCKET_NAME, Key=key)
                     print(f"    ↳ Saved to {mailbox}; removed from R2")
                     processed_count += 1
                 except Exception as error:
                     failed_count += 1
-                    print(f"    Failed ({type(error).__name__}); object retained for retry")
+                    detail = f': {error}' if isinstance(error, ValueError) else ''
+                    print(f"    Failed ({type(error).__name__}{detail}); object retained for retry")
 
         if processed_count == 0 and failed_count == 0:
             print("✅ R2 queue is empty.")

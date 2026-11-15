@@ -474,6 +474,54 @@ unambiguous local recipient. Invalid or ambiguous objects stay in R2 for review.
 One failed object does not block later objects; any failure makes the job exit
 nonzero. R2 deletion follows a flushed local file and directory entry.
 
+R2 replay uses `SHA256(JSON([account_id, bucket, key]))` as its stable identity.
+The Worker already creates a fresh UUID key for every queued object; queue keys
+must remain immutable. The same bytes under two different keys represent two
+deliveries. A changed payload or recipient under an existing identity is rejected.
+
+Recovery stores permanent mode-600 JSON receipts and `flock` lock files under
+`MAIL_DIR/.r2-receipts/`. Ordinary recovered mail has the deterministic filename
+`r2-<identity>.raymida`. Under the per-object lock, delivery advances through:
+
+1. `writing`: durably save the intent; partial files in Maildir `tmp` can be rebuilt.
+2. `publishing`: flush the complete temporary file and receipt before renaming it
+   into `new`. Flush the Maildir directories before advancing the receipt.
+3. `committed`: atomically save and flush the receipt before attempting R2 deletion.
+
+A crash after publication is recovered by verifying the deterministic file in
+`new` or `cur` (including Maildir `:2,FLAGS` names). A failed R2 delete can be
+retried without another local delivery. Missing/incomplete receipts can be
+repaired from an existing matching file. Corrupt receipts without a verifiable
+message, or a `publishing` receipt without its message, stop that object and leave
+it in R2: the message might already have been consumed or moved elsewhere. Such
+objects require investigation; do not blindly remove receipts to force replay.
+Website forms retain their existing request-ID identity, receipt paths and lock
+paths, including compatibility with older fingerprint-only form receipts.
+
+Keep both receipt directories (`.r2-receipts` and `.form-receipts`) and their lock
+files when backing up or moving mail storage. Do not clean committed receipts
+when deleting messages: they prevent replay from resurrecting deleted mail.
+
+The failure model is process interruption or a host crash on a local POSIX
+filesystem honoring atomic rename, `flock`, file `fsync` and directory `fsync`.
+Concurrent synchronization processes must share the same Maildir and receipts.
+Readers may move files from `new` to `cur`; readers that rename, edit or delete
+mail must durably persist their own operations. Loss/rollback of storage or
+receipts, arbitrary undetectable disk corruption, queue-key replacement during
+processing and independent Maildirs are outside this guarantee. Existing random
+filenames written by older synchronizers cannot be mapped retrospectively to R2
+identities. A lost HTTPS acknowledgement can also leave an ordinary direct
+delivery plus a new fallback object: this fix guarantees idempotent replay per
+queued object, not end-to-end exactly-once email delivery. No database or new
+runtime dependency is required.
+
+When upgrading a running installation, pause the R2 timer and let any old sync
+process finish. Install `maildir_delivery.py` together with `maildir_forms.py` and
+`r2_sync.py`, restart the inbound receiver so it reloads the form-receipt reader,
+then resume the timer. Do not run old form-delivery code alongside new code: the
+old reader does not understand unfinished receipts. Review unfinished receipts
+before any code rollback.
+
 If both the receiver and R2 fail, the Worker calls `setReject`, which gives a
 permanent SMTP rejection. The sender may need to send again; automatic retry is
 not guaranteed. See [Cloudflare's rejection and error handling documentation](https://developers.cloudflare.com/email-service/api/route-emails/email-handler/).
